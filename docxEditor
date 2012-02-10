@@ -1,0 +1,180 @@
+#!/usr/bin/python
+# -*- coding: UTF-8 -*-
+
+# Author: Seowon Jung
+# Email: jswlinux@gmail.com
+# irc.freenode #ubuntu-ko Seony
+
+import sys, os, re, commands 
+from zipfile import ZipFile
+
+# This gets a file type of the file user input.
+def getFileType(filename):
+	filetype = re.search(r':\s(\S+)', commands.getoutput('file "'+filename+'"')).group(1)
+	print 'File type: '+filetype
+	
+	# docx uses zip format
+	if filetype == 'Zip':
+		format = 'zip'
+	elif filetype == 'Rich':
+		format = 'rtf'
+	else:
+		format = 'unknown'
+
+# 	For debugging
+#		print '\nFormat: '+format
+	return format
+
+
+def docx(filepath, filename, source_text, target_text):
+	if not os.path.isdir(filepath+'/.temp'):
+			os.makedirs(filepath+'/.temp')
+
+	if (os.name == "posix"): 
+		red = '\033[31m'
+		white = '\033[00m'
+		green = '\033[01;32m'
+	else:
+		red = ''
+		white = ''
+		green = ''
+
+	# I don't know how to replace one file inside a zip file.
+	# So, all files in the zip file needs to be uncomoressed.
+	fzip = ZipFile(filename, 'r')
+	fzip.extractall(path=filepath+'/.temp/')
+
+	# Save original file just in case.
+	os.rename(filepath+'/.temp/word/document.xml', filepath+'/.temp/word/document.xml.orig')
+	sourceFile = open(filepath+'/.temp/word/document.xml.orig')
+
+	# document.xml file consists of only two lines. 
+	#	First line states for declaration of xml
+	# Second line include a body content
+	content = sourceFile.readlines()
+
+	# Open a new file
+	targetFile = file(filepath+'/.temp/word/document.xml', 'w')
+
+	# Start writing first line
+	targetFile.write(content[0])
+	
+	# Now let's find a word(s) or sentence
+	search = re.findall(source_text, content[1])	
+
+	# If it finds one or more words,
+	if len(search):
+		# Make a backup file for a docx file
+		os.rename(filepath+'/'+filename, filepath+'/'+filename+'.orig')
+
+		# Writing the body content
+		secondLine = content[1].replace(source_text, target_text)
+		targetFile.write(secondLine)
+		sourceFile.close()
+		targetFile.close()
+		
+		# Delete backup file if document.xml file is successfully created
+		if os.path.isfile(os.path.join(filepath, '.temp/word/document.xml')) and os.path.getsize(os.path.join(filepath, '.temp/word/document.xml')) > 0:
+			os.system('rm -f '+filepath+'/.temp/word/document.xml.orig')
+		else:
+			print 'Failed'
+			sys.exit(1)
+
+		if len(search) == 1:
+			times = 'time'
+		else:
+			times = 'times'
+		print '"'+source_text+'" => "'+target_text+'", '+str(len(search))+' '+times+' modified'
+		
+		"""		
+		In this case, zip tends to include the current path in the zip file.
+		Files in the docx must be able to be uncompressed on the current directory.
+		Unfortunately, zip and tar don't have options for it.
+		So, I have to use shell command to move work directory and zip them.
+		"""
+		os.system('cd '+filepath+'/.temp && zip -rq "'+filename+'" . && mv ./"'+filename+'" '+filepath+'/')
+		print '\n'+filename+' edited'
+		print filename+'.orig backup'
+
+	else:
+		print source_text+red+' Not found'+white
+
+	# .temp directory must be always deleted regardless successfully modified
+	os.system('rm -rf '+filepath+'/.temp')
+
+
+def main():
+	args = sys.argv[1:]
+	if (os.name == "posix"): 
+		red = '\033[31m'
+		white = '\033[00m'
+		green = '\033[01;32m'
+	else:
+		red = ''
+		white = ''
+		green = ''
+
+	if not args:
+		print "Docx Text Editor v0.1 by Seowon Jung"
+		print "usage: filename [source_text] [target_text]";
+		print "ex)"
+		print '\t./docxEditor ./File.docx UNIX Linux'
+		print '\n\t./docxEditor ./File.docx "My Account" "Your Account"\n'
+		sys.exit(1)
+	else:
+		del args[0]
+		if not args:
+			print 'Source and target text please.'
+			sys.exit(1)
+		else:
+			del args[0]
+			if not args:
+				print 'Target text please.'
+				sys.exit(1)
+			else:
+				del args[0]
+
+		# For debuging
+		#print '1: '+sys.argv[1]
+		print 'From :'+sys.argv[2]
+		print 'To   :'+sys.argv[3]+'\n'
+
+		source_text = sys.argv[2]
+		target_text = sys.argv[3]
+
+		""" 
+		Get a filename and its path.
+		Split the entire the file name into the array
+		File name may contains whitespace, +, -, (, ), [, ] and so on.
+		I don't have an idea how to cut them with re.
+		Therefore, the last element in the array should be a real filename.
+		"""
+		raw_filename = os.path.abspath(sys.argv[1])
+		splitFilePath = raw_filename.split('/')
+		lastElem = len(splitFilePath)
+		filename = splitFilePath[lastElem-1]
+		filepath = '/'.join(splitFilePath[:lastElem-1])
+
+		print 'Filename: '+filename
+		format = getFileType(filename)
+		
+		if format == 'unknown':
+			print "Unknown file type"
+			sys.exit(1)
+		# Has not developed yet
+		elif format == 'rtf':
+			print green+"Rich Text"+white+" format detected"
+		# If the file format is zip, the file should be MS-Word.
+		elif format == 'zip':
+			if re.search(r'.(docx)', raw_filename).group(1) == 'docx':
+				print green+"MS-Word "+white+"format detected\n"
+
+				print 'Now start editing file, '+filepath+'/'+filename+'\n'
+				docx(filepath, filename, source_text, target_text)
+			else:
+				print 'Sorry! .docx only.'
+				sys.exit(1)
+
+	
+if __name__ == "__main__":
+  main()
